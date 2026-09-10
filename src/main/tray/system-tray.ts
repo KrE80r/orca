@@ -6,6 +6,7 @@ import { createAppIconImage } from '../app-icon'
 import { translateMain } from '../i18n/main-i18n'
 import { composeTrayAttentionIcon, tintTrayTemplateForAttention } from './tray-attention-icon'
 import { stampTrayDevBadge } from './tray-dev-badge'
+import { registerTrayWithSniWatcher } from './tray-sni-registration'
 
 export type SystemTrayOptions = {
   /** App icon id from settings; the tray reuses the app icon image. */
@@ -252,6 +253,10 @@ export function createSystemTray(opts: SystemTrayOptions): Tray | null {
   }
 
   tray = new Tray(baseTrayImage)
+  // Why: Electron registers with object path /StatusNotifierItem/1, but KDE's
+  // StatusNotifierWatcher expects the bare service name. This workaround
+  // re-registers with the correct path so the icon appears in the Plasma panel.
+  void registerTrayWithSniWatcher()
   // Why: reflect any attention event that fired before the tray existed.
   applyTrayImage()
 
