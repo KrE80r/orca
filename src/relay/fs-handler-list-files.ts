@@ -1,14 +1,13 @@
+import { RipgrepFilenameDecoder } from '../shared/ripgrep-filename-decoder'
 /**
  * Ripgrep-based file listing for Quick Open.
- * Extracted from fs-handler-utils.ts to keep it under 300 lines (oxlint max-lines).
- *
  * Why a full rewrite vs. the older execFile+maxBuffer version: on a home-dir
  * worktree over SSH, rg descended into every dotfile cache, hit the timeout,
  * and silently resolved with a partial list — Quick Open then showed "No
  * matching files" even though the file existed on disk. This implementation:
  *   - streams via spawn (no maxBuffer failure mode)
  *   - prunes traversal at rg level using the shared blocklist globs
- *   - runs a second --no-ignore-vcs pass for ignored files
+ *   - includes gitignored files, preserving primary-first order for bounded listings
  *   - honors excludePathPrefixes for nested linked worktrees
  *   - rejects (not resolves) on timeout / spawn error / signal exit so
  *     the UI shows a load error instead of a false-empty list
@@ -23,20 +22,38 @@ import {
   shouldExcludeQuickOpenRelPath,
   shouldIncludeQuickOpenPath
 } from '../shared/quick-open-filter'
+import {
+  absorbPendingRipgrepSpawnError,
+  classifyRipgrepLaunchFailure,
+  isRipgrepUnavailableExit,
+  isTransientRipgrepSpawnError,
+  killSpawnedRipgrepProcess,
+  RipgrepLaunchFailureError,
+  ripgrepMissingCwdError,
+  RipgrepUnavailableError
+} from '../shared/ripgrep-process-availability'
+import { QuickOpenPathRanker } from '../shared/quick-open-path-search'
+import { buildRelayCommandEnv } from './relay-command-env'
+import {
+  pathRipgrepCommand,
+  resolveRelayRipgrepCommand,
+  retryRipgrepOnPathAfterLaunchFailure
+} from './relay-bundled-ripgrep'
 
 export const LIST_FILES_TIMEOUT_MS = 25_000
 
 export function listFilesWithRg(
   rootPath: string,
   excludePathPrefixes: readonly string[] = [],
-  options: { signal?: AbortSignal; maxResults?: number } = {}
+  options: { signal?: AbortSignal; maxResults?: number; searchQuery?: string } = {}
 ): Promise<string[]> {
-  const { signal, maxResults } = options
+  const { signal, maxResults, searchQuery } = options
   if (signal?.aborted) {
     return Promise.reject(fileListingCancellationError(signal))
   }
   return new Promise((resolve, reject) => {
     const files = new Set<string>()
+    let rankedPaths: string[] | null = null
     let done = false
     const children: {
       child: ChildProcess
@@ -53,17 +70,19 @@ export function listFilesWithRg(
       forceSlashSeparator: true
     })
 
-    const processLine = (rawLine: string): boolean => {
+    const processLine = (rawLine: string, attemptRanker: QuickOpenPathRanker | null): boolean => {
       const relPath = normalizeQuickOpenRgLine(rawLine, { kind: 'cwd-relative' })
       if (relPath === null) {
         return false
       }
       // Why: correctness backstop. The rg globs prune most blocklisted dirs,
       // but a glob edge case could still surface e.g. a .git/ or .npm/ hit.
-      if (!shouldIncludeQuickOpenPath(relPath)) {
+      const excluded = shouldExcludeQuickOpenRelPath(relPath, excludePathPrefixes)
+      if (!shouldIncludeQuickOpenPath(relPath) || excluded) {
         return true
       }
-      if (shouldExcludeQuickOpenRelPath(relPath, excludePathPrefixes)) {
+      if (attemptRanker) {
+        attemptRanker.consider(relPath)
         return true
       }
       files.add(relPath)
@@ -73,40 +92,65 @@ export function listFilesWithRg(
       return true
     }
 
-    const runPass = (args: string[]): Promise<void> =>
+    const runPassOnce = (args: string[]): Promise<void> =>
       new Promise((passResolve, passReject) => {
+        // A completed pass may queue its continuation before cancellation settles the request.
+        if (done || signal?.aborted) {
+          return passResolve()
+        }
+        const attemptRanker =
+          searchQuery === undefined ? null : new QuickOpenPathRanker(searchQuery, maxResults ?? 16)
+        const filenameDecoder = new RipgrepFilenameDecoder((error) => {
+          killSpawnedRipgrepProcess(child)
+          rejectPass(error)
+        })
         let passBuf = ''
         let passDone = false
         let passFileCount = 0
-        // --no-messages: permission-denied noise on the remote (e.g. .ssh,
-        // root-owned mounts) would otherwise flood stderr.
-        // cwd: rootPath — root-relative exclude globs like `!packages/app/**`
-        // are evaluated against rg's working directory, not the absolute
-        // search target. Without cwd, nested-worktree exclusions silently
-        // stop working.
-        const child = spawn('rg', ['--no-messages', ...args], {
-          cwd: rootPath,
-          stdio: ['ignore', 'pipe', 'pipe']
-        })
-        let timer: ReturnType<typeof setTimeout> | null = null
+        let processErrorObserved = false
+        let unavailableExitObserved = false
+        let launchFailureCheck: Promise<void> | null = null
+        // Suppress permission noise; cwd anchors root-relative exclusion globs.
+        const command = resolveRelayRipgrepCommand()
+        // Why not spawn a bare name when this is null: on Windows CreateProcessW searches the
+        // spawn cwd -- the user's repo -- before PATH. "No rg here" is what the chain handles.
+        if (command === null) {
+          throw new RipgrepUnavailableError()
+        }
+        const env = buildRelayCommandEnv()
+        let child: ChildProcess
+        try {
+          child = spawn(command, ['--no-messages', ...args], {
+            cwd: rootPath,
+            env,
+            stdio: ['ignore', 'pipe', 'ignore'],
+            windowsHide: true
+          })
+        } catch (error) {
+          throw isTransientRipgrepSpawnError(error)
+            ? new RipgrepLaunchFailureError(
+                `rg failed to start (${(error as NodeJS.ErrnoException).code})`
+              )
+            : error
+        }
         const cleanup = (): void => {
-          if (timer) {
-            clearTimeout(timer)
-            timer = null
-          }
-          child.stdout!.off('data', handleStdoutData)
-          child.stderr!.off('data', handleStderrData)
+          clearTimeout(timer)
+          child.stdout?.off('data', handleStdoutData)
           child.off('error', handleError)
           child.off('close', handleClose)
+          absorbPendingRipgrepSpawnError(child, {
+            errorObserved: processErrorObserved,
+            unavailableExitObserved
+          })
         }
-        const rejectPass = (error: Error): void => {
+        const rejectPass = (error: unknown): void => {
           if (passDone) {
             return
           }
           passDone = true
           passBuf = ''
           cleanup()
-          passReject(error)
+          passReject(error instanceof Error ? error : new Error(String(error)))
         }
         const resolvePass = (): void => {
           if (passDone) {
@@ -114,45 +158,94 @@ export function listFilesWithRg(
           }
           passDone = true
           cleanup()
+          if (attemptRanker) {
+            rankedPaths = attemptRanker.result().paths
+          }
           passResolve()
         }
-        children.push({
-          child,
-          isDone: () => passDone,
-          reject: rejectPass
-        })
+        const rejectLaunchFailure = (error: Error): void => {
+          if (launchFailureCheck) {
+            return
+          }
+          launchFailureCheck = retryRipgrepOnPathAfterLaunchFailure(command, rootPath, error)
+            .then(async (retryOnPath) => {
+              if (passDone || done) {
+                return
+              }
+              if (retryOnPath) {
+                // Why: runPass retries a launch failure once, and the retry resolves to PATH rg.
+                rejectPass(new RipgrepLaunchFailureError('bundled rg failed to start'))
+                return
+              }
+              // Why distinguish: RipgrepUnavailableError is what engages the git/readdir chain,
+              // and that chain cannot help when the root itself is gone.
+              rejectPass(
+                (await classifyRipgrepLaunchFailure(
+                  rootPath,
+                  [command, pathRipgrepCommand()],
+                  env,
+                  signal
+                )) === 'cwd-unreachable'
+                  ? ripgrepMissingCwdError(rootPath)
+                  : new RipgrepUnavailableError()
+              )
+            })
+            .catch(rejectPass)
+        }
+        children.push({ child, isDone: () => passDone, reject: rejectPass })
 
-        timer = setTimeout(() => {
+        const timer = setTimeout(() => {
           // Discard residual buffer on abnormal exit — a truncated byte
           // sequence could look like a valid path.
-          child.kill()
+          killSpawnedRipgrepProcess(child)
           rejectPass(new Error('rg list timed out'))
         }, LIST_FILES_TIMEOUT_MS)
 
-        function handleStdoutData(chunk: string): void {
-          passBuf += chunk
+        function handleStdoutData(chunk: Buffer | string): void {
+          const decoded = filenameDecoder.decode(chunk)
+          if (decoded === null) {
+            return
+          }
+          passBuf += decoded
           let start = 0
-          let idx = passBuf.indexOf('\n', start)
+          let idx = passBuf.indexOf('\0', start)
           while (idx !== -1) {
-            if (processLine(passBuf.substring(start, idx))) {
+            if (processLine(passBuf.substring(start, idx), attemptRanker)) {
               passFileCount++
             }
             if (done) {
               return
             }
             start = idx + 1
-            idx = passBuf.indexOf('\n', start)
+            idx = passBuf.indexOf('\0', start)
           }
           passBuf = start < passBuf.length ? passBuf.substring(start) : ''
         }
-        function handleStderrData(): void {
-          /* drain to prevent backpressure stalls */
-        }
-        function handleError(err: Error): void {
+        function handleError(err: NodeJS.ErrnoException): void {
+          processErrorObserved = true
+          if (isTransientRipgrepSpawnError(err)) {
+            rejectPass(new RipgrepLaunchFailureError(`rg failed to start (${err.code})`))
+            return
+          }
+          if (isRipgrepUnavailableExit(child, null, null)) {
+            passBuf = ''
+            rejectLaunchFailure(err)
+            return
+          }
           rejectPass(err)
         }
         function handleClose(code: number | null, signal: NodeJS.Signals | null): void {
           if (passDone) {
+            return
+          }
+          if (
+            isRipgrepUnavailableExit(child, code, signal, {
+              classifyNativeLauncherExit: true
+            })
+          ) {
+            unavailableExitObserved = true
+            passBuf = ''
+            rejectLaunchFailure(new Error(`rg exited with code ${code}`))
             return
           }
           // Why signal != null is a failure: the only way spawn gets a signal
@@ -162,9 +255,12 @@ export function listFilesWithRg(
             rejectPass(new Error(`rg killed by ${signal}`))
             return
           }
+          if (!filenameDecoder.finish()) {
+            return
+          }
           // Flush residual line only on clean exit.
           if (passBuf) {
-            if (processLine(passBuf)) {
+            if (processLine(passBuf, attemptRanker)) {
               passFileCount++
             }
           }
@@ -173,33 +269,34 @@ export function listFilesWithRg(
           // (e.g. EACCES on .ssh), but rg also returns 2 for fatal errors
           // (bad flag, invalid glob). Only trust exit 2 when rg emitted at
           // least one parseable path — otherwise treat it as a real failure.
-          if (code === 0 || code === 1) {
-            resolvePass()
-          } else if (code === 2 && passFileCount > 0) {
+          if (code === 0 || code === 1 || (code === 2 && passFileCount > 0)) {
             resolvePass()
           } else {
             rejectPass(new Error(`rg exited with code ${code}`))
           }
         }
 
-        child.stdout!.setEncoding('utf-8')
-        child.stdout!.on('data', handleStdoutData)
-        child.stderr!.on('data', handleStderrData)
+        child.stdout?.on('data', handleStdoutData)
         child.once('error', handleError)
         child.once('close', handleClose)
       })
 
+    const runPass = (args: string[]): Promise<void> =>
+      runPassOnce(args).catch((error: unknown) => {
+        if (!(error instanceof RipgrepLaunchFailureError) || signal?.aborted || done) {
+          throw error
+        }
+        return runPassOnce(args)
+      })
+
     const killSurvivors = (reason: string): void => {
-      // Why: when one pass rejects, Promise.all surfaces the error immediately
-      // but the sibling rg keeps running up to LIST_FILES_TIMEOUT_MS. Kill it
-      // so repeated Quick Open opens don't pile up orphan rg processes on the
-      // remote.
+      // Cancellation or a reached budget must stop any admitted scan or retry.
       for (const entry of children) {
         if (entry.isDone()) {
           continue
         }
         if (entry.child.exitCode === null && entry.child.signalCode === null) {
-          entry.child.kill()
+          killSpawnedRipgrepProcess(entry.child)
         }
         entry.reject(new Error(reason))
       }
@@ -228,12 +325,11 @@ export function listFilesWithRg(
     }
     signal?.addEventListener('abort', onAbort, { once: true })
 
+    // Without a result budget, the broader pass already contains every primary path.
     const passes =
-      maxResults === undefined
-        ? Promise.all([runPass(primary), runPass(ignoredPass)])
-        : // Why: deterministic primary-first budgeting prevents a large ignored
-          // tree from starving ordinary source paths on a remote host.
-          runPass(primary).then(() =>
+      searchQuery !== undefined || maxResults === undefined
+        ? runPass(ignoredPass)
+        : runPass(primary).then(() =>
             files.size < maxResults ? runPass(ignoredPass) : Promise.resolve()
           )
 
@@ -244,7 +340,7 @@ export function listFilesWithRg(
         }
         done = true
         signal?.removeEventListener('abort', onAbort)
-        resolve(Array.from(files))
+        resolve(rankedPaths ?? Array.from(files))
       })
       .catch((err) => {
         if (done) {
@@ -252,7 +348,7 @@ export function listFilesWithRg(
         }
         done = true
         signal?.removeEventListener('abort', onAbort)
-        killSurvivors('rg list canceled after sibling failure')
+        killSurvivors('rg list canceled after failure')
         reject(err instanceof Error ? err : new Error(String(err)))
       })
   })

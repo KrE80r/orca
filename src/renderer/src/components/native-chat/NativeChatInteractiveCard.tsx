@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useAppStore } from '../../store'
-import { parseInteractivePrompt } from './native-chat-interactive-prompt'
+import type { InteractivePromptCard } from './native-chat-interactive-prompt'
 import { nativeChatCardDismissKey } from './native-chat-dismiss-key'
 import { NativeChatQuestionCard } from './NativeChatQuestionCard'
 import { NativeChatApprovalCard } from './NativeChatApprovalCard'
 import type { NativeChatInteractiveSend } from './use-native-chat-interactive-send'
 
 /**
- * Render the live interactive card for the pane while the agent's
- * `interactivePrompt` is present: a question wizard (precedence) or a tool
- * approval. Cleared by the host once the agent moves on, so it disappears
- * automatically. Sends through the composer's verified runtime path (R8/R6):
- * answers via agent-specific paste or selector keystrokes; cancel/deny as ESC.
+ * Render the pane's interactive card (see useNativeChatInteractivePromptCard): a
+ * question wizard or a tool approval. Cleared by the host once the agent moves
+ * on, so it disappears automatically. Sends through the composer's verified
+ * runtime path (R8/R6): answers via agent-specific paste or selector
+ * keystrokes; cancel/deny as ESC.
  * Guarded by `canSend` so a mobile presence-lock blocks desktop sends too.
  *
  * Dismiss-on-answer (mobile parity): the live status lingers after answering —
@@ -21,13 +20,13 @@ import type { NativeChatInteractiveSend } from './use-native-chat-interactive-se
  * (even identical) prompt shows again instead of staying hidden.
  */
 export function NativeChatInteractiveCard({
-  paneKey,
+  card,
   send,
   canSend,
   onShowingQuestionChange,
   answerInputRef
 }: {
-  paneKey: string
+  card: InteractivePromptCard
   send: NativeChatInteractiveSend
   canSend: boolean
   /** Reports whether a question card is on screen so the view can replace the
@@ -37,18 +36,7 @@ export function NativeChatInteractiveCard({
    *  a target while the composer is unmounted. */
   answerInputRef?: React.RefObject<HTMLInputElement | null>
 }): React.JSX.Element | null {
-  const interactivePrompt = useAppStore(
-    (s) => s.agentStatusByPaneKey[paneKey]?.interactivePrompt ?? null
-  )
-  // Thread the sibling `toolName` from the same status entry so the question
-  // parser can dispatch through the tool's registered parser (mobile parity).
-  const interactiveToolName = useAppStore((s) => s.agentStatusByPaneKey[paneKey]?.toolName ?? null)
-  const { sendAnswer, sendRaw, cancelPending, cancel } = send
-
-  const card = useMemo(
-    () => parseInteractivePrompt(interactivePrompt, interactiveToolName ?? undefined),
-    [interactivePrompt, interactiveToolName]
-  )
+  const { sendAnswer, sendRaw, cancelPending, cancelAsk } = send
   const cardKey = useMemo(() => nativeChatCardDismissKey(card), [card])
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
   // A question answer is a paced multi-step write (body→Enter per question); keep
@@ -107,28 +95,47 @@ export function NativeChatInteractiveCard({
             return
           }
           submittingRef.current = true
-          const settleMs = sendAnswer(card.prompt, selections)
-          if (settleMs <= 0) {
-            // Keep the actionable card visible when its PTY disappeared between
-            // render and submit; the next live target update can make it retryable.
-            submittingRef.current = false
-            return
-          }
-          setSubmitting(true)
-          // Hold the card until the paced write finishes, then mark it answered
-          // (which hides it and restores the composer).
-          dismissTimerRef.current = setTimeout(() => {
-            cancelPending()
+          const dismissAnsweredCard = (): void => {
             setDismissedKey(cardKey)
             submittingRef.current = false
             setSubmitting(false)
             dismissTimerRef.current = null
-          }, settleMs)
+          }
+          const keepRejectedAnswerVisible = (): void => {
+            submittingRef.current = false
+            setSubmitting(false)
+          }
+          const result = sendAnswer(card.prompt, selections, (delivered) => {
+            if (delivered) {
+              dismissAnsweredCard()
+            } else {
+              keepRejectedAnswerVisible()
+            }
+          })
+          if (result.settleAfterMs <= 0) {
+            // Keep the actionable card visible when its PTY disappeared between
+            // render and submit; the next live target update can make it retryable.
+            keepRejectedAnswerVisible()
+            return
+          }
+          setSubmitting(true)
+          if (result.waitsForVerifiedDelivery) {
+            // Why: remote acceptance can outlive the keystroke pacing window.
+            // Keep the card until delivery is proven instead of cancelling the
+            // inference callback at the old fixed dismissal deadline.
+            return
+          }
+          // Hold the card until the paced write finishes, then mark it answered
+          // (which hides it and restores the composer).
+          dismissTimerRef.current = setTimeout(() => {
+            cancelPending()
+            dismissAnsweredCard()
+          }, result.settleAfterMs)
         }}
         onCancel={() => {
           clearDismissTimer()
           setDismissedKey(cardKey)
-          cancel()
+          cancelAsk()
         }}
       />
     )

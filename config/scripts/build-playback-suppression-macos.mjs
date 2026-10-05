@@ -70,5 +70,5 @@ function verifySnapshotContract(stdout) {
 
 function readArg(name) {
   const index = process.argv.indexOf(name)
-  return index >= 0 ? process.argv[index + 1] : undefined
+  return index !== -1 ? process.argv[index + 1] : undefined
 }

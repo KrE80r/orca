@@ -4,7 +4,7 @@ import {
   createWebRuntimeSessionTerminal,
   isWebRuntimeSessionActive
 } from '@/runtime/web-runtime-session'
-import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { resolveTerminalWorktreeRoute } from '@/lib/terminal-worktree-route'
 
 export function createNewTerminalTab(
   activeWorktreeId: string | null,
@@ -15,7 +15,11 @@ export function createNewTerminalTab(
     return
   }
   const state = useAppStore.getState()
-  const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, activeWorktreeId)
+  const worktreeRoute = resolveTerminalWorktreeRoute(state, activeWorktreeId)
+  if (!worktreeRoute) {
+    return
+  }
+  const runtimeEnvironmentId = worktreeRoute.runtimeEnvironmentId
   if (isWebRuntimeSessionActive(runtimeEnvironmentId)) {
     // Why: paired web clients receive host-owned terminal tabs through
     // session.tabs. Creating a local tab first races the host snapshot and can
@@ -35,7 +39,7 @@ export function createNewTerminalTab(
     shellOverride,
     options?.startupCwd ? { startupCwd: options.startupCwd } : undefined
   )
-  state.setActiveTabType('terminal')
+  state.setActiveTabType('terminal', activeWorktreeId)
   // Why: persist the tab bar order with the new terminal at the end of the
   // current visual order. Without this, reconcileTabOrder falls back to
   // terminals-first when tabBarOrderByWorktree is unset, causing a new

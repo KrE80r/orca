@@ -370,26 +370,27 @@ async function clickVisibleDiffLine(page: Page): Promise<void> {
             return null
           }
           const containerRect = container.getBoundingClientRect()
-          const visibleLine = Array.from(
-            container.querySelectorAll<HTMLElement>('.monaco-diff-editor .view-line')
-          ).find((line) => {
+          for (const line of container.querySelectorAll<HTMLElement>(
+            '.monaco-diff-editor .view-line'
+          )) {
             const rect = line.getBoundingClientRect()
-            return (
-              rect.height > 0 &&
-              rect.bottom > containerRect.top &&
-              rect.top < containerRect.bottom &&
-              rect.right > containerRect.left &&
-              rect.left < containerRect.right
-            )
-          })
-          if (!visibleLine) {
-            return null
+            const left = Math.max(rect.left, containerRect.left)
+            const right = Math.min(rect.right, containerRect.right)
+            const top = Math.max(rect.top, containerRect.top)
+            const bottom = Math.min(rect.bottom, containerRect.bottom)
+            if (left >= right || top >= bottom) {
+              continue
+            }
+            const point = {
+              x: left + Math.min(12, (right - left) / 2),
+              y: (top + bottom) / 2
+            }
+            // Sticky headers can cover a line whose rectangle intersects the viewport.
+            if (line.contains(document.elementFromPoint(point.x, point.y))) {
+              return point
+            }
           }
-          const rect = visibleLine.getBoundingClientRect()
-          return {
-            x: rect.left + Math.min(12, Math.max(1, rect.width / 2)),
-            y: rect.top + rect.height / 2
-          }
+          return null
         })
         return linePoint !== null
       },
@@ -453,8 +454,16 @@ test.describe('Combined diff scroll restore', () => {
       // Assert the viewport barely moved rather than an exact anchor key: sections
       // are ~viewport-sized, so a sub-pixel focus scroll from the click can flip the
       // topmost-visible key by one without meaningfully moving the scroll position.
-      expect(Math.abs(afterLineClick.scrollTop - afterSwitch.scrollTop)).toBeLessThan(40)
       expect(Math.abs(afterLineClick.top - afterSwitch.top)).toBeLessThan(80)
+      // Why: when a section above the viewport swaps its estimated height for
+      // Monaco's measured one, scrollHeight changes and Chromium's default
+      // scroll anchoring (no `overflow-anchor: none` here) legitimately moves
+      // raw scrollTop to keep the row above asserted `top` pinned — that is
+      // not an anchoring regression, so only cap scrollTop drift when content
+      // height held steady (same rule as getLargestBackwardScrollJump above).
+      if (afterLineClick.scrollHeight === afterSwitch.scrollHeight) {
+        expect(Math.abs(afterLineClick.scrollTop - afterSwitch.scrollTop)).toBeLessThan(40)
+      }
     } finally {
       rmSync(fixture.repoPath, { recursive: true, force: true })
     }

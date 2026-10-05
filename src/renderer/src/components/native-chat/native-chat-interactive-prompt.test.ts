@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildAskAnswerKeys,
+  buildCodexAskAnswerKeys,
   formatAskAnswer,
   hasAskAnswer,
   parseApprovalFromStatus,
@@ -240,6 +241,52 @@ describe('buildAskAnswerKeys', () => {
   })
 })
 
+describe('buildCodexAskAnswerKeys', () => {
+  it("submits the final multi-question option without Claude's extra Enter", () => {
+    const prompt: AskPrompt = {
+      questions: [
+        { question: 'q1', multiSelect: false, options: [{ label: 'A' }, { label: 'B' }] },
+        { question: 'q2', multiSelect: false, options: [{ label: 'C' }, { label: 'D' }] }
+      ]
+    }
+
+    expect(buildCodexAskAnswerKeys(prompt, [{ indices: [1] }, { indices: [0] }])).toEqual([
+      { raw: '2' },
+      { raw: '1' }
+    ])
+  })
+
+  it('adds free text as notes before committing the selected row', () => {
+    expect(
+      buildCodexAskAnswerKeys(single(['Tabs', 'Spaces']), [
+        { indices: [1], other: 'Keep existing files' }
+      ])
+    ).toEqual([{ raw: '\x1b[B' }, { raw: '\t' }, { text: 'Keep existing files' }, { raw: '\r' }])
+  })
+
+  it("targets Codex's synthetic None-of-the-above row for a custom answer", () => {
+    expect(
+      buildCodexAskAnswerKeys(single(['Tabs', 'Spaces']), [{ indices: [], other: 'Four spaces' }])
+    ).toEqual([{ raw: '\x1b[A' }, { raw: '\t' }, { text: 'Four spaces' }, { raw: '\r' }])
+  })
+
+  it('clears skipped rows and confirms the partial answer once', () => {
+    const prompt: AskPrompt = {
+      questions: [
+        { question: 'q1', multiSelect: false, options: [{ label: 'A' }, { label: 'B' }] },
+        { question: 'q2', multiSelect: false, options: [{ label: 'C' }, { label: 'D' }] }
+      ]
+    }
+
+    expect(buildCodexAskAnswerKeys(prompt, [{ indices: [] }, { indices: [1] }])).toEqual([
+      { raw: '\x7f' },
+      { raw: '\x1b[C' },
+      { raw: '2' },
+      { raw: '\r' }
+    ])
+  })
+})
+
 describe('hasAskAnswer', () => {
   it('is true for a picked option or typed text, false when empty', () => {
     expect(hasAskAnswer(single(['A', 'B']), [{ indices: [1] }])).toBe(true)
@@ -248,3 +295,10 @@ describe('hasAskAnswer', () => {
     expect(hasAskAnswer(single(['A', 'B']), [])).toBe(false)
   })
 })
+
+for (const agent of ['opencode', 'opencode2']) {
+  it(`${agent} approves the captured default selector with Enter`, () => {
+    const card = parseApprovalFromStatus(JSON.stringify({ approval: { tool: 'shell' } }), agent)
+    expect(card?.options[0].send).toBe('\r')
+  })
+}

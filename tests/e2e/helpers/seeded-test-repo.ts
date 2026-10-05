@@ -3,12 +3,38 @@
  * disposable test repo (plus its secondary worktree) that specs operate on.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { execSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { TEST_REPO_PATH_FILE } from '../global-setup'
+import { cleanupTestRepository } from '../global-teardown'
+
+export async function provideWorkerTestRepository(
+  provideFixture: (repository: string) => Promise<void>
+): Promise<void> {
+  const persistedRepoPath = existsSync(TEST_REPO_PATH_FILE)
+    ? readFileSync(TEST_REPO_PATH_FILE, 'utf-8').trim()
+    : ''
+  const repoPath = isValidGitRepo(persistedRepoPath) ? persistedRepoPath : createSeededTestRepo()
+  try {
+    await provideFixture(repoPath)
+  } finally {
+    if (existsSync(repoPath)) {
+      cleanupTestRepository(repoPath)
+    }
+    rmSync(TEST_REPO_PATH_FILE, { force: true })
+  }
+}
 
 export function isValidGitRepo(repoPath: string): boolean {
   if (!repoPath || !existsSync(repoPath)) {
@@ -28,7 +54,7 @@ export function isValidGitRepo(repoPath: string): boolean {
   }
 }
 
-export function createSeededTestRepo(): string {
+export function createSeededTestRepo(options: { publishPath?: boolean } = {}): string {
   // Why: realpathSync so the seeded path matches the store's repo.path on
   // macOS, where os.tmpdir() (/var/...) symlinks to /private/var/... and the
   // app canonicalizes repo.path via `git rev-parse --show-toplevel` on add.
@@ -50,6 +76,7 @@ export function createSeededTestRepo(): string {
   writeFileSync(path.join(testRepoDir, '.gitignore'), 'node_modules/\n')
   mkdirSync(path.join(testRepoDir, 'src'), { recursive: true })
   writeFileSync(path.join(testRepoDir, 'src', 'index.ts'), 'export const hello = "world"\n')
+  writeFileSync(path.join(testRepoDir, 'src', 'diff-note-layout.ts'), 'export const seed = true\n')
 
   execSync('git add -A', { cwd: testRepoDir, stdio: 'pipe' })
   execSync('git commit -m "Initial commit for E2E tests"', { cwd: testRepoDir, stdio: 'pipe' })
@@ -62,6 +89,8 @@ export function createSeededTestRepo(): string {
     stdio: 'pipe'
   })
 
-  writeFileSync(TEST_REPO_PATH_FILE, testRepoDir)
+  if (options.publishPath !== false) {
+    writeFileSync(TEST_REPO_PATH_FILE, testRepoDir)
+  }
   return testRepoDir
 }
