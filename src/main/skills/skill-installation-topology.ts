@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { constants } from 'node:fs'
+import { constants, type Stats } from 'node:fs'
 import { access, lstat, realpath, stat } from 'node:fs/promises'
 import { dirname, normalize, resolve } from 'node:path'
 import type { SkillInstallationTopology } from '../../shared/skill-freshness'
@@ -26,10 +26,7 @@ export function normalizedSkillIdentityPath(value: string): string {
   return process.platform === 'win32' ? normalized.toLocaleLowerCase('en-US') : normalized
 }
 
-export function skillPhysicalIdentity(
-  resolvedPath: string,
-  fileStat: Awaited<ReturnType<typeof stat>>
-): string {
+export function skillPhysicalIdentity(resolvedPath: string, fileStat: Stats): string {
   const inodeIdentity = fileStat.dev || fileStat.ino ? `${fileStat.dev}:${fileStat.ino}` : null
   return inodeIdentity ?? normalizedSkillIdentityPath(resolvedPath)
 }
@@ -132,10 +129,8 @@ export async function classifyHomeSkillTopology(
     normalizedSkillIdentityPath(dirname(resolvedPath)) ===
     normalizedSkillIdentityPath(canonicalRoot)
   let topology: SkillInstallationTopology
-  if (linked) {
+  if (linked || rootOrProviderParentLinked) {
     topology = isCanonicalTarget ? 'provider-alias' : 'external-link'
-  } else if (rootOrProviderParentLinked) {
-    topology = 'external-link'
   } else {
     topology = root.id === 'home-agents' ? 'canonical-copy' : 'independent-copy'
   }

@@ -83,8 +83,8 @@ export function KeybindingsFileActions(): React.JSX.Element {
         (file) => file.filePath === filePath && file.worktreeId === FLOATING_TERMINAL_WORKTREE_ID
       )
       if (existingFile && !existingFile.isDirty) {
-        // Why: a prior denied read can leave a focused error tab. Reopen a
-        // clean tab after authorization so the editor retries the file load.
+        // Why: a prior failed read can leave a focused error tab. Reopen a
+        // clean tab so the editor retries the file load.
         closeFile(existingFile.id)
       }
       openFile(
@@ -132,7 +132,7 @@ export function KeybindingsFileActions(): React.JSX.Element {
         )
         return
       }
-      const result = await window.api.shell.openInExternalEditor(filePath, command)
+      const result = await window.api.shell.openInExternalEditor({ path: filePath, command })
       if (!result.ok) {
         toast.error(openFailureMessage(result.reason))
       }

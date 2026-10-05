@@ -9,6 +9,7 @@ import {
   sortWorktrees
 } from './workspace-list-sections'
 import { DEFAULT_MOBILE_WORKSPACE_STATUSES } from './mobile-workspace-statuses'
+import { getMobileWorkspaceLineageGroupKey } from './mobile-workspace-lineage'
 
 function worktree(overrides: Partial<Worktree> = {}): Worktree {
   const worktreePath = join('/tmp', 'orca', 'worktrees', 'feature')
@@ -106,6 +107,95 @@ describe('filterWorktrees', () => {
     ).toEqual([featureNamedMain])
   })
 
+  it('keeps a sleeping main worktree visible under hide-sleeping by default (#8873)', () => {
+    const main = worktree({ worktreeId: 'main', branch: 'main', isMainWorktree: true })
+    const feature = worktree({ worktreeId: 'feature', isMainWorktree: false })
+
+    expect(
+      filterWorktrees(
+        [main, feature],
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: false },
+        ''
+      )
+    ).toEqual([main])
+  })
+
+  it('keeps a sleeping folder workspace visible under hide-sleeping', () => {
+    const folder = worktree({
+      workspaceKind: 'folder-workspace',
+      worktreeId: 'folder:workspace-1',
+      branch: '',
+      isMainWorktree: true
+    })
+
+    expect(
+      filterWorktrees(
+        [folder],
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: false },
+        ''
+      )
+    ).toEqual([folder])
+  })
+
+  it('re-hides the sleeping main worktree when the desktop setting is off', () => {
+    const main = worktree({ worktreeId: 'main', branch: 'main', isMainWorktree: true })
+
+    expect(
+      filterWorktrees(
+        [main],
+        {
+          filterRepoIds: new Set(),
+          hideSleeping: true,
+          hideDefaultBranch: false,
+          alwaysShowDefaultBranch: false
+        },
+        ''
+      )
+    ).toEqual([])
+  })
+
+  it('falls back to the branch heuristic for hosts that omit isMainWorktree', () => {
+    const legacyMain = worktree({ worktreeId: 'legacy-main', branch: 'refs/heads/master' })
+
+    expect(
+      filterWorktrees(
+        [legacyMain],
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: false },
+        ''
+      )
+    ).toEqual([legacyMain])
+  })
+
+  it('keeps a sleeping folder workspace on hosts that omit isMainWorktree', () => {
+    // A folder workspace has no branch, so the legacy branch heuristic can never
+    // recognise it — without its own arm, #8873 still reproduces on old desktops.
+    const legacyFolder = worktree({
+      workspaceKind: 'folder-workspace',
+      worktreeId: 'folder:legacy-1',
+      branch: ''
+    })
+
+    expect(
+      filterWorktrees(
+        [legacyFolder],
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: false },
+        ''
+      )
+    ).toEqual([legacyFolder])
+  })
+
+  it('lets hide-default-branch still win over the sleeping exemption', () => {
+    const main = worktree({ worktreeId: 'main', branch: 'main', isMainWorktree: true })
+
+    expect(
+      filterWorktrees(
+        [main],
+        { filterRepoIds: new Set(), hideSleeping: true, hideDefaultBranch: true },
+        ''
+      )
+    ).toEqual([])
+  })
+
   it('keeps folder workspaces when default branch hiding is enabled', () => {
     const folder = worktree({
       workspaceKind: 'folder-workspace',
@@ -151,6 +241,24 @@ describe('getWorktreeStatus', () => {
 })
 
 describe('buildSections', () => {
+  it('keys same-id rows by host inside a section', () => {
+    const worktreeId = 'repo-1::/work/orca'
+    const sections = buildSections(
+      [worktree({ worktreeId, hostId: 'local' }), worktree({ worktreeId, hostId: 'ssh:builder' })],
+      'name',
+      { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
+      '',
+      'none',
+      new Set()
+    )
+    const keys = sections[0]?.data.map((item) => item.sectionListKey) ?? []
+
+    expect(new Set(keys).size).toBe(2)
+    expect(keys).toEqual(
+      expect.arrayContaining([`all:local|${worktreeId}`, `all:ssh:builder|${worktreeId}`])
+    )
+  })
+
   it('matches desktop Name sort by display name', () => {
     const beta = worktree({ worktreeId: 'beta', displayName: 'Beta', repo: 'aaa' })
     const alpha = worktree({ worktreeId: 'alpha', displayName: 'Alpha', repo: 'zzz' })
@@ -581,28 +689,68 @@ describe('buildSections', () => {
     expect(sections[0]?.data.map((worktree) => worktree.worktreeId)).toEqual(['progress'])
   })
 
-  it('keeps pinned worktrees in their canonical status group like desktop', () => {
-    const pinned = worktree({
-      worktreeId: 'pinned',
-      workspaceStatus: 'in-progress',
-      isPinned: true
-    })
+  describe.each(['none', 'repo', 'workspaceStatus', 'prStatus'] as const)(
+    'pinned placement in %s grouping',
+    (groupMode) => {
+      const sibling = worktree({ worktreeId: 'sibling', workspaceStatus: 'in-progress' })
+      const hostPinned = worktree({
+        worktreeId: 'host-pinned',
+        workspaceStatus: 'in-progress',
+        isPinned: true
+      })
+      const localPinned = worktree({ worktreeId: 'local-pinned', workspaceStatus: 'in-progress' })
+
+      function placement(showPinnedInGroups: boolean) {
+        const sections = buildSections(
+          [sibling, hostPinned, localPinned],
+          'name',
+          { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
+          '',
+          groupMode,
+          new Set(['local-pinned']),
+          new Map(),
+          DEFAULT_MOBILE_WORKSPACE_STATUSES,
+          new Set(),
+          showPinnedInGroups
+        )
+        const ids = (keep: (key: string) => boolean) =>
+          sections
+            .filter((section) => keep(section.key))
+            .flatMap((section) => section.data.map((row) => row.worktreeId))
+            .sort()
+        return { pinned: ids((key) => key === 'pinned'), groups: ids((key) => key !== 'pinned') }
+      }
+
+      it('shows host and local pins only in Pinned by default', () => {
+        expect(placement(false)).toEqual({
+          pinned: ['host-pinned', 'local-pinned'],
+          groups: ['sibling']
+        })
+      })
+
+      it('also keeps them in their groups when the desktop setting is on', () => {
+        expect(placement(true)).toEqual({
+          pinned: ['host-pinned', 'local-pinned'],
+          groups: ['host-pinned', 'local-pinned', 'sibling']
+        })
+      })
+    }
+  )
+
+  it('drops a repo group whose only worktree is pinned, like desktop', () => {
+    const pinned = worktree({ worktreeId: 'pinned', isPinned: true })
 
     const sections = buildSections(
       [pinned],
-      'manual',
+      'name',
       { filterRepoIds: new Set(), hideSleeping: false, hideDefaultBranch: false },
       '',
-      'workspaceStatus',
+      'repo',
       new Set(),
-      new Map(),
-      DEFAULT_MOBILE_WORKSPACE_STATUSES
+      new Map([['orca', 'repo-1']])
     )
 
-    expect(withoutSectionListKeys(sections)).toEqual([
-      { key: 'pinned', title: 'Pinned', icon: 'pin', data: [pinned] },
-      { key: 'workspace-status:in-progress', title: 'In progress', data: [pinned] }
-    ])
+    expect(sections.map((section) => section.key)).toEqual(['pinned'])
   })
 
   it('renders one sorted All section when grouping is off like desktop', () => {
@@ -687,7 +835,7 @@ describe('buildSections', () => {
       new Set(),
       new Map(),
       DEFAULT_MOBILE_WORKSPACE_STATUSES,
-      new Set(['workspace-lineage:parent'])
+      new Set([getMobileWorkspaceLineageGroupKey(parent)])
     )
 
     expect(sections[0]?.data.map((worktree) => worktree.worktreeId)).toEqual(['parent'])

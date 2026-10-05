@@ -15,8 +15,7 @@ vi.mock('node:fs/promises', () => ({
   readdir: readdirMock,
   realpath: realpathMock
 }))
-vi.mock('./filesystem-auth', () => ({
-  authorizeExternalPath: vi.fn(),
+vi.mock('./filesystem-path-containment', () => ({
   isENOENT: (error: NodeJS.ErrnoException) => error.code === 'ENOENT'
 }))
 vi.mock('./ssh', () => ({ getSshConnectionManager: getConnMgrMock }))

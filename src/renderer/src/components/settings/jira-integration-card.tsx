@@ -1,3 +1,4 @@
+import { UnsealedCredentialNotice } from './UnsealedCredentialNotice'
 import { useState } from 'react'
 import { AlertCircle, CheckCircle2, LoaderCircle, Unlink } from 'lucide-react'
 import { JiraConnectDialog } from '@/components/jira-connect-dialog'
@@ -13,6 +14,7 @@ import { IntegrationCardDetails, IntegrationCardShell } from './integration-card
 import { useIntegrationSubordinateRowClass } from './integration-card-presentation'
 import { getProviderAccountScope } from './provider-account-scope'
 import { ProviderHostScopeControl } from './ProviderHostScopeControl'
+import { JIRA_INTEGRATION_SECTION_ID } from './task-provider-integration-section-ids'
 import { translate } from '@/i18n/i18n'
 
 type VerificationResult = { state: 'ok' | 'error'; error?: string }
@@ -76,6 +78,7 @@ export function JiraIntegrationCard(): React.JSX.Element {
 
   return (
     <IntegrationCardShell
+      settingsSectionId={JIRA_INTEGRATION_SECTION_ID}
       icon={<JiraIcon className="size-5" />}
       name="Jira"
       description={
@@ -97,7 +100,14 @@ export function JiraIntegrationCard(): React.JSX.Element {
       }
       checking={checking}
       statusTone={connected ? 'connected' : 'attention'}
-      statusLabel={connected ? 'Connected' : 'Not connected'}
+      statusLabel={
+        connected
+          ? translate('auto.components.settings.jira.integration.card.statusConnected', 'Connected')
+          : translate(
+              'auto.components.settings.jira.integration.card.statusNotConnected',
+              'Not connected'
+            )
+      }
       actions={
         !checking ? (
           <Button
@@ -119,6 +129,13 @@ export function JiraIntegrationCard(): React.JSX.Element {
       }
     >
       <IntegrationCardDetails>
+        <UnsealedCredentialNotice
+          protection={jiraStatus.credentialProtection ?? null}
+          credentialName={translate(
+            'auto.components.settings.jira.integration.card.jiraTokenName',
+            'Your Jira API token'
+          )}
+        />
         <ProviderHostScopeControl
           labelPrefix={translate(
             'auto.components.settings.task.tracker.integration.cards.account_scope_prefix',

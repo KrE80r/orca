@@ -3,24 +3,32 @@
  * chunking (the receiver's parser rejects oversized lines) and the safe-index
  * clamp shared by the batcher's bulk write slicing and keep-tail dropping.
  */
+import { resolveSynchronizedOutputSafeSplit } from '../../shared/terminal-synchronized-output-scan'
 import { encodeNdjson } from './ndjson'
-import type { Socket } from 'node:net'
 
 export function encodeStreamDataEvent(
   sessionId: string,
   data: string,
-  sequenceChars?: number
+  rawLength?: number,
+  seq?: number,
+  transformed?: boolean
 ): string {
   return encodeNdjson({
     type: 'event',
     event: 'data',
     sessionId,
-    payload: { data, ...(sequenceChars === undefined ? {} : { sequenceChars }) }
+    payload: {
+      data,
+      ...(seq === undefined ? {} : { seq }),
+      ...(rawLength === undefined ? {} : { rawLength }),
+      ...(rawLength === undefined ? {} : { sequenceChars: rawLength }),
+      ...(transformed ? { transformed: true } : {})
+    }
   })
 }
 
-function streamDataEventLineBytes(sessionId: string, data: string, sequenceChars?: number): number {
-  return Buffer.byteLength(encodeStreamDataEvent(sessionId, data, sequenceChars), 'utf8')
+function streamDataEventLineBytes(sessionId: string, data: string, rawLength?: number): number {
+  return Buffer.byteLength(encodeStreamDataEvent(sessionId, data, rawLength), 'utf8')
 }
 
 function isHighSurrogate(value: number): boolean {
@@ -29,6 +37,21 @@ function isHighSurrogate(value: number): boolean {
 
 function isLowSurrogate(value: number): boolean {
   return value >= 0xdc00 && value <= 0xdfff
+}
+
+/**
+ * Bulk-write split policy: frame-align first so a held remainder cannot strand an
+ * open DEC 2026 frame's closing \x1b[?2026l (xterm then stops repainting until its
+ * 1s timeout), then let the surrogate clamp have the final say.
+ */
+export function clampToSafeBulkWriteSplitIndex(value: string, end: number): number {
+  // Math.max(1): the surrogate clamp can decrement an aligned index to 0 (e.g.
+  // ('\u{1F600}aaaa', 1)), and a 0-length slice would never shift the batcher's
+  // queue entry, spinning its drain loop.
+  return Math.max(
+    1,
+    clampToSafeSplitIndex(value, 0, resolveSynchronizedOutputSafeSplit(value, end))
+  )
 }
 
 export function clampToSafeSplitIndex(value: string, start: number, end: number): number {
@@ -62,6 +85,15 @@ export function splitStreamDataForNdjson(
     return [data]
   }
 
+  return splitOversizedStreamDataForNdjson(sessionId, data, maxLineBytes, sequenceChars)
+}
+
+function splitOversizedStreamDataForNdjson(
+  sessionId: string,
+  data: string,
+  maxLineBytes: number,
+  sequenceChars?: number
+): string[] {
   const chunks: string[] = []
   let start = 0
   while (start < data.length) {
@@ -96,19 +128,41 @@ export function splitStreamDataForNdjson(
 }
 
 export function writeStreamDataEvents(
-  streamSocket: Pick<Socket, 'write'>,
+  streamSocket: { write(data: string): void },
   sessionId: string,
   data: string,
   maxLineBytes: number,
-  sequenceChars = data.length
+  rawLength = data.length,
+  seq?: number,
+  transformed = false
 ): void {
-  const explicitSequenceChars = sequenceChars === data.length ? undefined : sequenceChars
-  for (const chunk of splitStreamDataForNdjson(
-    sessionId,
-    data,
-    maxLineBytes,
-    explicitSequenceChars
-  )) {
-    streamSocket.write(encodeStreamDataEvent(sessionId, chunk, explicitSequenceChars))
+  const explicitRawLength = rawLength === data.length ? undefined : rawLength
+  if (transformed) {
+    streamSocket.write(encodeStreamDataEvent(sessionId, data, rawLength, seq, true))
+    return
+  }
+  const carriesMetadata = explicitRawLength !== undefined || seq !== undefined
+  let chunks: string[]
+  if (!carriesMetadata) {
+    const line = encodeStreamDataEvent(sessionId, data)
+    if (Buffer.byteLength(line, 'utf8') <= maxLineBytes) {
+      streamSocket.write(line)
+      return
+    }
+    chunks = splitOversizedStreamDataForNdjson(sessionId, data, maxLineBytes)
+  } else {
+    chunks = splitStreamDataForNdjson(
+      sessionId,
+      data,
+      Math.max(1, maxLineBytes - 96),
+      explicitRawLength
+    )
+  }
+  let consumed = 0
+  for (const chunk of chunks) {
+    consumed += chunk.length
+    const chunkEndSeq = seq === undefined ? undefined : seq - (data.length - consumed)
+    const chunkRawLength = explicitRawLength === 0 ? 0 : carriesMetadata ? chunk.length : undefined
+    streamSocket.write(encodeStreamDataEvent(sessionId, chunk, chunkRawLength, chunkEndSeq))
   }
 }

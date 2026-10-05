@@ -82,6 +82,59 @@ describe('getNativeChatSessionTransport — selection', () => {
     expect(nativeChatReadSession).not.toHaveBeenCalled()
   })
 
+  it('validates lifecycle metadata on runtime read responses', async () => {
+    markRuntimeEnvironmentCompatible(ENV)
+    const lifecycle = { state: 'completed', turnId: 'turn-1', timestamp: 42 } as const
+    runtimeEnvironmentsCall
+      .mockResolvedValueOnce(okEnvelope({ messages: [message('valid')], lifecycle }))
+      .mockResolvedValueOnce(
+        okEnvelope({
+          messages: [message('invalid')],
+          lifecycle: { state: 'completed', turnId: '', timestamp: undefined }
+        })
+      )
+    const transport = getNativeChatSessionTransport(ENV)
+
+    await expect(transport.readSession('claude', 'sess-1')).resolves.toEqual({
+      messages: [message('valid')],
+      lifecycle
+    })
+    // An invalid lifecycle payload is dropped, leaving prose recovery to settle.
+    await expect(transport.readSession('claude', 'sess-1')).resolves.toEqual({
+      messages: [message('invalid')]
+    })
+  })
+
+  it('accepts interrupted lifecycle metadata from a remote runtime', async () => {
+    markRuntimeEnvironmentCompatible(ENV)
+    const lifecycle = { state: 'interrupted', turnId: 'turn-2', timestamp: 43 } as const
+    runtimeEnvironmentsCall.mockResolvedValueOnce(
+      okEnvelope({ messages: [message('interrupted')], lifecycle })
+    )
+    const transport = getNativeChatSessionTransport(ENV)
+
+    await expect(transport.readSession('codex', 'sess-1')).resolves.toEqual({
+      messages: [message('interrupted')],
+      lifecycle
+    })
+  })
+
+  it('keeps lifecycle metadata whose timestamp is omitted, normalizing it to null', async () => {
+    markRuntimeEnvironmentCompatible(ENV)
+    runtimeEnvironmentsCall.mockResolvedValueOnce(
+      okEnvelope({
+        messages: [message('no-ts')],
+        lifecycle: { state: 'completed', turnId: 'turn-3' }
+      })
+    )
+    const transport = getNativeChatSessionTransport(ENV)
+
+    await expect(transport.readSession('claude', 'sess-1')).resolves.toEqual({
+      messages: [message('no-ts')],
+      lifecycle: { state: 'completed', turnId: 'turn-3', timestamp: null }
+    })
+  })
+
   it('returns the local adapter on the web client even with an owner (R3 guard)', async () => {
     ;(window as unknown as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ = true
     nativeChatReadSession.mockResolvedValue({ messages: [] })
@@ -128,6 +181,13 @@ describe('runtime subscribe', () => {
     transport.subscribe({ subscriptionId: 's-1', agent: 'claude', sessionId: 'sess-1' }, onFrame)
     await Promise.resolve()
 
+    expect(runtimeEnvironmentsSubscribe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({ capabilities: { transcriptPending: 1 } })
+      }),
+      expect.any(Object)
+    )
+
     deliver({ type: 'appended', messages: [message('m-1')] })
     deliver({ type: 'snapshot', messages: [message('m-snapshot')] })
     deliver({ type: 'replacement', messages: [message('m-replacement')], hasMore: true })
@@ -153,6 +213,64 @@ describe('runtime subscribe', () => {
     })
   })
 
+  it('validates lifecycle metadata on runtime stream frames', async () => {
+    markRuntimeEnvironmentCompatible(ENV)
+    const { deliver } = stubSubscribe()
+    const onFrame = vi.fn()
+    const transport = getNativeChatSessionTransport(ENV)
+    const lifecycle = { state: 'completed', turnId: 'turn-1', timestamp: 42 } as const
+
+    transport.subscribe({ subscriptionId: 's-1', agent: 'claude', sessionId: 'sess-1' }, onFrame)
+    await Promise.resolve()
+    deliver({
+      type: 'snapshot',
+      messages: [message('valid')],
+      lifecycle
+    })
+    deliver({
+      type: 'appended',
+      messages: [message('invalid')],
+      lifecycle: { state: 'completed', turnId: '', timestamp: undefined }
+    })
+
+    expect(onFrame).toHaveBeenNthCalledWith(1, {
+      type: 'snapshot',
+      messages: [message('valid')],
+      hasMore: false,
+      lifecycle
+    })
+    expect(onFrame).toHaveBeenNthCalledWith(2, {
+      type: 'appended',
+      messages: [message('invalid')]
+    })
+  })
+
+  it('omits an invalid lifecycle payload from a stream frame', async () => {
+    markRuntimeEnvironmentCompatible(ENV)
+    const { deliver } = stubSubscribe()
+    const onFrame = vi.fn()
+    const transport = getNativeChatSessionTransport(ENV)
+
+    transport.subscribe({ subscriptionId: 's-1', agent: 'claude', sessionId: 'sess-1' }, onFrame)
+    await Promise.resolve()
+    deliver({
+      type: 'snapshot',
+      messages: [message('seed')],
+      hasMore: false,
+      lifecycle: { state: 'completed', turnId: 'turn-ok', timestamp: 1 }
+    })
+    deliver({
+      type: 'appended',
+      messages: [message('bad-lifecycle')],
+      lifecycle: { state: 'completed', turnId: '', timestamp: undefined }
+    })
+
+    expect(onFrame).toHaveBeenNthCalledWith(2, {
+      type: 'appended',
+      messages: [message('bad-lifecycle')]
+    })
+  })
+
   it('settles with an empty snapshot when the first ok frame is an unrecognized shape', async () => {
     markRuntimeEnvironmentCompatible(ENV)
     const { deliver } = stubSubscribe()
@@ -173,6 +291,39 @@ describe('runtime subscribe', () => {
       messages: [],
       hasMore: false,
       error: 'boom'
+    })
+  })
+
+  it('forwards the pending flag and still treats the real snapshot as the initial frame', async () => {
+    markRuntimeEnvironmentCompatible(ENV)
+    const { deliver } = stubSubscribe()
+    const onFrame = vi.fn()
+    const transport = getNativeChatSessionTransport(ENV)
+
+    transport.subscribe(
+      { subscriptionId: 's-1', agent: 'claude', sessionId: 'sess-1', limit: 1 },
+      onFrame
+    )
+    await Promise.resolve()
+
+    // The host's unflushed-transcript frame, then the flush that follows it.
+    deliver({ type: 'snapshot', messages: [], hasMore: false, pending: true })
+    deliver({ type: 'snapshot', messages: [message('m-1')] })
+
+    expect(onFrame).toHaveBeenNthCalledWith(1, {
+      type: 'snapshot',
+      messages: [],
+      hasMore: false,
+      pending: true
+    })
+    // Dropping `pending` would settle an empty read; carrying it onto the real
+    // snapshot would keep the view unsettled over real history. hasMore proves the
+    // pending frame did not consume the initial slot — only the initial branch
+    // infers a filled window from the limit.
+    expect(onFrame).toHaveBeenNthCalledWith(2, {
+      type: 'snapshot',
+      messages: [message('m-1')],
+      hasMore: true
     })
   })
 

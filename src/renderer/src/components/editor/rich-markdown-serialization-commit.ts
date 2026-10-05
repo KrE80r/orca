@@ -1,6 +1,10 @@
 import type { MutableRefObject } from 'react'
 import type { Editor } from '@tiptap/react'
-import { reconcileSerializedMarkdown } from './rich-markdown-source-reconcile'
+import { reconcileRichMarkdownBlockSource } from './rich-markdown-block-source'
+import {
+  reconcileSerializedMarkdown,
+  restoreMarkdownSourceEol
+} from './rich-markdown-source-reconcile'
 
 export type RichMarkdownReconcileRefs = {
   /** Current on-disk source bytes; updated to the reconciled output each commit. */
@@ -41,12 +45,35 @@ export function commitRichMarkdownSerialization(
     return { markdown: refs.lastCommittedMarkdownRef.current, didSerialize: false }
   }
 
-  const reconciled = reconcileSerializedMarkdown({
-    originalSource: refs.originalSourceRef.current,
-    baseCanonical: refs.baseCanonicalRef.current,
-    edited,
-    roundTrip
-  })
+  let reconciled: string
+  try {
+    reconciled = reconcileSerializedMarkdown({
+      originalSource: refs.originalSourceRef.current,
+      baseCanonical: refs.baseCanonicalRef.current,
+      edited,
+      roundTrip
+    })
+  } catch (error) {
+    // Why: style reconciliation is best-effort; preserve content and source EOL when it fails.
+    console.error('[editor] markdown reconcile failed; falling back to canonical output', error)
+    reconciled = restoreMarkdownSourceEol(edited, refs.originalSourceRef.current)
+  }
+
+  if (
+    editor &&
+    edited !== refs.baseCanonicalRef.current &&
+    reconciled === restoreMarkdownSourceEol(edited, refs.originalSourceRef.current)
+  ) {
+    const preserved = reconcileRichMarkdownBlockSource(
+      editor,
+      refs.originalSourceRef.current,
+      edited,
+      roundTrip
+    )
+    if (preserved !== null) {
+      reconciled = preserved
+    }
+  }
 
   refs.originalSourceRef.current = reconciled
   // Why: reconciled ≡ edited semantically, so its canonical form is `edited`
