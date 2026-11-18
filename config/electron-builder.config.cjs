@@ -368,8 +368,9 @@ module.exports = {
     'out/main/environment-doctor/environment-doctor-host.js',
     // `orca plugin test` and `orca plugin check` load the runtime, kit and hooks in Node.
     'resources/plugins/declarative/*.mjs',
-    'out/main/skills/bundled-skill-install/bundled-skill-local-host.js',
-    'out/main/skills/bundled-skill-install/bundled-skill-installation.js',
+    'resources/plugins/types/*.d.ts',
+    // Node-mode CLI/daemon run under plain node: they need real paths for the whole module closure.
+    'out/main/**',
     'out/main/startup/network-compatibility/http1-compatibility-marker.js',
     // `orca agent hooks` gives main hook code an app environment in the CLI process.
     'out/main/backend/node-service-environment.js',
@@ -560,6 +561,7 @@ module.exports = {
         signMacStandaloneHelper(path, 'orcad template binary', context.packager)
     })
     chmodUnixCliLaunchers(resourcesDir, context.electronPlatformName)
+    chmodMacPlaybackSuppressionHelper(resourcesDir, context.electronPlatformName)
     if (context.electronPlatformName === 'darwin') {
       await signMacComputerUseHelper(join(resourcesDir, 'Orca Computer Use.app'), context.packager)
       await signMacStandaloneHelper(
@@ -623,6 +625,10 @@ module.exports = {
       {
         from: 'native/computer-use-windows/runtime.ps1',
         to: 'computer-use-windows/runtime.ps1'
+      },
+      {
+        from: 'native/playback-suppression-windows/.build/orca-playback-suppression.exe',
+        to: 'playback-suppression/orca-playback-suppression.exe'
       },
       featureWallResources
     ]
@@ -689,6 +695,10 @@ module.exports = {
       {
         from: 'native/computer-use-macos/.build/release/Orca Computer Use.app',
         to: 'Orca Computer Use.app'
+      },
+      {
+        from: 'native/playback-suppression-macos/.build/release/orca-playback-suppression',
+        to: 'playback-suppression/orca-playback-suppression'
       },
       featureWallResources
     ],
@@ -837,6 +847,16 @@ function stampPackagedCliVersion(resourcesDir, version) {
   }
   const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'))
   writeFileSync(packageJsonPath, `${JSON.stringify({ ...packageJson, version }, null, 2)}\n`)
+}
+
+function chmodMacPlaybackSuppressionHelper(resourcesDir, electronPlatformName) {
+  if (electronPlatformName !== 'darwin') {
+    return
+  }
+  const helperPath = join(resourcesDir, 'playback-suppression', 'orca-playback-suppression')
+  if (existsSync(helperPath)) {
+    chmodSync(helperPath, 0o755)
+  }
 }
 
 function chmodUnixCliLaunchers(resourcesDir, electronPlatformName) {

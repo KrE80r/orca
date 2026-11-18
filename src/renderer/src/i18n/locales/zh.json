@@ -9477,7 +9477,11 @@
           "openAiKeyName": "您的 OpenAI 转录密钥",
           "dictationModeAuto": "自动",
           "speechGpuLabel": "使用 GPU",
-          "c5ea32143e": "语音模型"
+          "c5ea32143e": "语音模型",
+          "6b0ed79a8f": "Mute other audio while dictating",
+          "66296e0568": "Temporarily mute this computer's output while the microphone is active.",
+          "a2f0263871": "System audio muting is not available on this computer.",
+          "50504af1f2": "Checking system audio support…"
         },
         "WorktreeSymlinksSection": {
           "1c1e35b219": "删除 {{value0}}",
@@ -17229,7 +17233,9 @@
           "micFallback": "所选麦克风不可用，改用系统默认",
           "micDisconnected": "麦克风已断开，听写已停止，",
           "cloudLimitReached": "已达 10 分钟云端上限。听写已停止。",
-          "retryUnmatched": "重试时无法判断哪些字词已输入，因此已全部插入。"
+          "retryUnmatched": "重试时无法判断哪些字词已输入，因此已全部插入。",
+          "c97ad62022": "Could not mute other audio. Dictation will continue.",
+          "0080b89cf5": "Could not restore other audio. Unmute it in system controls."
         },
         "dictation-transcript-delivery": {
           "copiedAfterFailedInsert": "无法插入听写内容，已复制到剪贴板。",

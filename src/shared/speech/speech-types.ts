@@ -122,6 +122,7 @@ export type VoiceSettings = {
   dictationHoldToRecord: boolean
   /** Drops "um", "uh" and their equivalents in the dictation language before text is inserted. */
   removeFillerWords: boolean
+  muteSystemAudioDuringDictation: boolean
   terminalConfirmBeforeInsert: boolean
   openAiApiKeyConfigured: boolean
   /** null = system default input device */

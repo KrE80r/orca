@@ -40,7 +40,8 @@ export function buildInterfaceSettingsSections(
       icon: Palette,
       searchEntries: getAppearancePaneSearchEntries({
         showDesktopThemeImports: showDesktopOnlySettings,
-        showSystemTray: showDesktopOnlySettings && isWindows,
+        // Linux now counts as tray-capable with the local SNI patch; simplify to !isMac.
+        showSystemTray: showDesktopOnlySettings && (isWindows || !isMac),
         showMenuBarIcon: showDesktopOnlySettings && isMac
       }),
       group: 'interface'

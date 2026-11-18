@@ -89,8 +89,8 @@ export function getSystemTrayEntries(
 ): SettingsSearchEntry[] {
   const show =
     options.showSystemTray ??
-    // Windows web clients report win32 but have no local tray.
-    (getRendererAppPlatform() === 'win32' && !isWebClientLocation())
+    // Tray-capable desktops (Windows/Linux); web clients have no local tray.
+    (getRendererAppPlatform() !== 'darwin' && !isWebClientLocation())
   return show ? getSystemTrayEntryCatalog() : []
 }
 

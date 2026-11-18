@@ -103,8 +103,10 @@ export function installMainWindowCloseLifecycle(args: {
   // Windows tray minimization owns close when enabled; callers must skip their normal close path.
   const hideToTrayIfEnabled = (): boolean => {
     const isRendererCrashed = mainWindow.webContents.isCrashed?.() ?? false
+    // With the local SNI patch Linux is tray-capable too; keep Windows semantics for it.
+    const trayPlatform = process.platform === 'win32' || process.platform === 'linux'
     if (
-      process.platform !== 'win32' ||
+      !trayPlatform ||
       focus.isRendererProcessGone() ||
       isRendererCrashed ||
       opts?.getIsQuitting?.() === true ||

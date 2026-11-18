@@ -40,7 +40,7 @@ type AppearanceInterfaceSectionProps = {
   applyTheme: (theme: 'system' | 'dark' | 'light') => void
   fontSuggestions: string[]
   isDesktopMac: boolean
-  isDesktopWindows: boolean
+  isDesktopTraySupported: boolean
   onRequestFontSuggestions?: () => void
   forceVisiblePrimary?: boolean
 }
@@ -51,7 +51,7 @@ export function AppearanceInterfaceSection({
   applyTheme,
   fontSuggestions,
   isDesktopMac,
-  isDesktopWindows,
+  isDesktopTraySupported,
   onRequestFontSuggestions,
   forceVisiblePrimary = false
 }: AppearanceInterfaceSectionProps): React.JSX.Element {
@@ -106,7 +106,7 @@ export function AppearanceInterfaceSection({
   const advancedEntries = [
     ...getTitlebarEntries(),
     ...getReduceVisualEffectsEntries(),
-    ...getSystemTrayEntries({ showSystemTray: isDesktopWindows }),
+    ...getSystemTrayEntries({ showSystemTray: isDesktopTraySupported }),
     ...getMenuBarIconEntries({ showMenuBarIcon: isDesktopMac })
   ]
   const showAdvanced = !isSearching || matchesSettingsSearch(searchQuery, advancedEntries)
@@ -314,7 +314,7 @@ export function AppearanceInterfaceSection({
             updateSettings={updateSettings}
           />
 
-          {isDesktopWindows ? (
+          {isDesktopTraySupported ? (
             <SearchableSetting
               title={t(
                 'auto.components.settings.AppearancePane.95a5581f66',
