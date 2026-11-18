@@ -88,7 +88,9 @@ const JS_SOURCE_MAP_ARTIFACT_RE = /\.(?:c|m)?js\.map$/
 
 const NODE_BUILTINS = new Set([
   ...builtinModules,
-  ...builtinModules.map((moduleName) => `node:${moduleName}`)
+  ...builtinModules.map((moduleName) => `node:${moduleName}`),
+  // Why: experimental builtins like node:sqlite are absent from builtinModules.
+  'node:sqlite'
 ])
 
 function packageNameFromSpecifier(specifier) {
