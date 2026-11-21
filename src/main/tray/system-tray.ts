@@ -7,6 +7,7 @@ import { translateMain } from '../i18n/main-i18n'
 import { quitAndStopAllSessionsMenuText } from '../menu/app-menu-quit-item'
 import { composeTrayAttentionIcon, tintTrayTemplateForAttention } from './tray-attention-icon'
 import { stampTrayDevBadge } from './tray-dev-badge'
+import { registerTrayWithSniWatcher } from './tray-sni-registration'
 
 export type SystemTrayOptions = {
   /** App icon id from settings; the tray reuses the app icon image. */
@@ -50,7 +51,7 @@ function baseTooltip(): string {
   return devIndicator.label ? `Orca DEV (${devIndicator.label})` : 'Orca DEV'
 }
 
-// Downscale the app image for Windows' 16px notification-area slot.
+// Downscale the app image for the 16px tray slot; the app icon PNG is larger.
 const TRAY_ICON_SIZE = 16
 
 function applyTrayImage(): void {
@@ -196,9 +197,13 @@ function safeMenuAction(action: () => void): () => void {
   }
 }
 
-/** Create at most one Windows/macOS tray; Linux has none. */
+/** Create at most one Windows/Linux/macOS tray; idempotent. */
 export function createSystemTray(opts: SystemTrayOptions): Tray | null {
-  if (process.platform !== 'win32' && process.platform !== 'darwin') {
+  if (
+    process.platform !== 'win32' &&
+    process.platform !== 'linux' &&
+    process.platform !== 'darwin'
+  ) {
     return null
   }
   if (tray && !tray.isDestroyed()) {
@@ -223,13 +228,17 @@ export function createSystemTray(opts: SystemTrayOptions): Tray | null {
   }
 
   tray = new Tray(baseTrayImage)
+  // Electron registers at /StatusNotifierItem/1, but KDE's StatusNotifierWatcher wants the bare
+  // service name; re-register so the icon appears in the Plasma panel.
+  void registerTrayWithSniWatcher()
+  // Reflect any attention event that fired before the tray existed.
   applyTrayImage()
 
   trayOptions = opts
   tray.setContextMenu(buildTrayMenu(opts))
-  if (process.platform === 'win32') {
+  if (process.platform !== 'darwin') {
     tray.setToolTip(baseTooltip())
-    // Windows left-click restores the app; macOS uses its attached menu.
+    // Windows/Linux left-click restores the app; macOS uses its attached menu.
     tray.on(
       'click',
       safeMenuAction(() => opts.onOpen())
@@ -292,7 +301,7 @@ export function rebuildSystemTrayMenu(): void {
   })
 }
 
-/** Applies the persisted macOS visibility preference without affecting Windows. */
+/** Applies the persisted macOS visibility preference without affecting Windows or Linux. */
 export function setMacMenuBarIconVisible(visible: boolean, opts: SystemTrayOptions): Tray | null {
   if (process.platform !== 'darwin') {
     return null

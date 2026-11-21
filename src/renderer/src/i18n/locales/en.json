@@ -10711,7 +10711,11 @@
           "dictationModeAuto": "Auto",
           "speechGpuLabel": "Use GPU",
           "c5ea32143e": "Speech model",
-          "ba4a900d1d": "Dictation Mode"
+          "ba4a900d1d": "Dictation Mode",
+          "6b0ed79a8f": "Mute other audio while dictating",
+          "66296e0568": "Temporarily mute this computer's output while the microphone is active.",
+          "a2f0263871": "System audio muting is not available on this computer.",
+          "50504af1f2": "Checking system audio support…"
         },
         "WorktreeSymlinksSection": {
           "1c1e35b219": "Remove {{value0}}",
@@ -18445,7 +18449,9 @@
           "micFallback": "Selected microphone unavailable. Using system default.",
           "micDisconnected": "Microphone disconnected. Dictation stopped.",
           "cloudLimitReached": "Dictation stopped at the 10-minute cloud limit.",
-          "retryUnmatched": "Retry couldn't tell which words were already typed, so it inserted them all."
+          "retryUnmatched": "Retry couldn't tell which words were already typed, so it inserted them all.",
+          "c97ad62022": "Could not mute other audio. Dictation will continue.",
+          "0080b89cf5": "Could not restore other audio. Unmute it in system controls."
         },
         "dictation-transcript-delivery": {
           "copiedAfterFailedInsert": "Dictation couldn't be inserted, so it was copied to the clipboard.",

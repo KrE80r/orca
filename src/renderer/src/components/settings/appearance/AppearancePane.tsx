@@ -71,7 +71,7 @@ export function AppearancePane({
   )
   const isWebClient = isWebClientLocation()
   // Windows web clients have no local system tray; require desktop Electron.
-  const isDesktopWindows = getRendererAppPlatform() === 'win32' && !isWebClient
+  const isDesktopTraySupported = getRendererAppPlatform() !== 'darwin' && !isWebClient
   const isDesktopMac = getRendererAppPlatform() === 'darwin' && !isWebClient
   const tilingWindowModeEntry =
     getRendererAppPlatform() === 'linux' && !isWebClient ? getTilingWindowModeEntry(t) : undefined
@@ -110,7 +110,7 @@ export function AppearancePane({
     ...(SHOW_UI_LANGUAGE_SETTING ? getLanguageEntries() : []),
     ...getTitlebarEntries(),
     ...getReduceVisualEffectsEntries(),
-    ...getSystemTrayEntries({ showSystemTray: isDesktopWindows }),
+    ...getSystemTrayEntries({ showSystemTray: isDesktopTraySupported }),
     ...getMenuBarIconEntries({ showMenuBarIcon: isDesktopMac })
   ]
   const terminalSearchEntries = [
@@ -154,7 +154,7 @@ export function AppearancePane({
             fontSuggestions={fontSuggestions}
             onRequestFontSuggestions={onRequestFontSuggestions}
             isDesktopMac={isDesktopMac}
-            isDesktopWindows={isDesktopWindows}
+            isDesktopTraySupported={isDesktopTraySupported}
             forceVisiblePrimary={interfaceLabelMatches}
           />
         </SettingsGroup>

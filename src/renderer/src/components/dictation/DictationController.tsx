@@ -10,6 +10,7 @@ import {
   createDictationKeptRecording,
   type DictationKeptRecording
 } from './dictation-kept-recording'
+import { useDictationPlaybackSuppression } from './use-dictation-playback-suppression'
 import { useDictationRetry } from './use-dictation-retry'
 import { useDictationControls } from './use-dictation-controls'
 import { useDictationQueuedSend } from './use-dictation-queued-send'
@@ -60,6 +61,7 @@ export function DictationController() {
     getCapturedChunkCount,
     getLastSpeechAt
   } = useAudioCapture(publishDictationMeter)
+  const suppression = useDictationPlaybackSuppression()
 
   const sessionRef = useRef<DictationSession>(initialDictationSession)
   // Inserts the current session's finals where dictation started.
@@ -100,8 +102,10 @@ export function DictationController() {
           setPillAnchor(null)
           keptRef.current = null
         }
+        // Cancel and the error pill tear down without finishDictationSession; unmute either way.
         if (next.phase === 'idle' || next.phase === 'error') {
           clearQueuedSend()
+          void suppression.release(previous.sessionId ?? '')
         }
         if (next.phase !== 'error') {
           setFailure(null)
@@ -109,7 +113,7 @@ export function DictationController() {
       }
       return next
     },
-    [setDictationState, setLiveText, clearQueuedSend]
+    [setDictationState, setLiveText, clearQueuedSend, suppression]
   )
 
   const finishDictationSession = useCallback(
@@ -118,6 +122,7 @@ export function DictationController() {
         return
       }
       await finishCapture()
+      await suppression.release(sessionId)
       // A speech error during the tail already tore this session down; a newer one may be current now.
       if (sessionRef.current.run !== run) {
         return
@@ -148,7 +153,8 @@ export function DictationController() {
       getCapturedChunkCount,
       stoppedSessions,
       releaseQueuedSend,
-      landCleanup
+      landCleanup,
+      suppression
     ]
   )
 
@@ -197,10 +203,12 @@ export function DictationController() {
     if (previous.phase === 'starting') {
       // Startup finishes once the engine is up, so the buffered words land.
       void finishCapture({ preserveBufferedAudio: true })
+      // The mute lease may already be held while startup is still awaiting it.
+      void suppression.release(previous.sessionId ?? '')
       return
     }
     await finishDictationSession(next)
-  }, [dispatch, finishCapture, finishDictationSession, invalidatePendingStart])
+  }, [dispatch, finishCapture, finishDictationSession, invalidatePendingStart, suppression])
 
   const startDictation = useCallback(async () => {
     if (!canStartDictation(sessionRef.current.phase)) {
@@ -241,6 +249,7 @@ export function DictationController() {
     const stopQueued = (): boolean => isCurrent() && sessionRef.current.phase === 'stopping'
     const releaseStart = async (engineStarted: boolean, captureStarted = true): Promise<void> => {
       discardBufferedAudio()
+      await suppression.release(sessionId)
       if (captureStarted) {
         stopCapture()
       }
@@ -253,6 +262,10 @@ export function DictationController() {
     let captureStarted = false
 
     try {
+      if ((await suppression.acquire(sessionId, settings?.voice)) === false) {
+        dispatch({ type: 'cancel' })
+        return
+      }
       // Capture and buffer before slow worker startup so speech during model load is retained.
       const preferredMicrophoneDeviceId = settings?.voice?.microphoneDeviceId ?? null
       const captureResult = await startCapture({
@@ -337,7 +350,8 @@ export function DictationController() {
     stoppedSessions,
     recordFeatureInteraction,
     showFailure,
-    readyToRecord
+    readyToRecord,
+    suppression
   ])
 
   const retryDictation = useDictationRetry({

@@ -208,12 +208,18 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: 0.3.319
         version: 0.3.319(@anthropic-ai/sdk@0.122.0(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.1(supports-color@7.2.0)(zod@4.6.7))(zod@4.6.7)
+      '@electron-toolkit/utils':
+        specifier: ^4.0.0
+        version: 4.0.0(electron@43.8.7(supports-color@7.2.0))
       '@floating-ui/dom':
         specifier: 1.8.0
         version: 1.8.0
       '@linear/sdk':
         specifier: ^97.0.0
         version: 97.0.0(graphql@16.14.2)
+      '@noble/hashes':
+        specifier: 1.8.0
+        version: 1.8.0
       '@orca/process-host':
         specifier: workspace:*
         version: link:src/packages/process-host
@@ -317,9 +323,6 @@ importers:
       '@monaco-editor/react':
         specifier: ^4.7.0
         version: 4.7.0(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(monaco-editor@0.55.1(patch_hash=53b71f7d8a7c00b76ffdb73ce83d18e31692f193f5fafa6a390e48f5b3fdd636))(react-dom@19.2.9(@types/react@19.2.18)(react@19.2.9))(react@19.2.9)
-      '@noble/hashes':
-        specifier: 1.8.0
-        version: 1.8.0
       '@oxlint/plugins':
         specifier: 1.94.0
         version: 1.94.0
@@ -1043,6 +1046,15 @@ packages:
     resolution: {integrity: sha512-AdPsP770WhW7b260h13SHMdmjEEHJL6xFtgi3jwgdsSQbJOkJLeNnnpZW9qxTPCvmRI6vmdzWz5K3gibFS6SNg==}
     peerDependencies:
       '@types/node': '*'
+
+  '@electron-toolkit/utils@4.0.0':
+    resolution: {integrity: sha512-qXSntwEzluSzKl4z5yFNBknmPGjPa3zFhE4mp9+h0cgokY5ornAeP+CJQDBhKsL1S58aOQfcwkD3NwLZCl+64g==}
+    peerDependencies:
+      '@types/electron': '*'
+      electron: '>=13.0.0'
+    peerDependenciesMeta:
+      '@types/electron':
+        optional: true
 
   '@electron/asar@3.4.1':
     resolution: {integrity: sha512-i4/rNPRS84t0vSRa2HorerGRXWyF4vThfHesw0dmcWHp+cspK743UanA0suA5Q5y8kzY2y6YKrvbIUn69BCAiA==}
@@ -8671,6 +8683,10 @@ snapshots:
   '@electron-toolkit/tsconfig@2.0.0(@types/node@24.19.2)':
     dependencies:
       '@types/node': 24.19.2
+
+  '@electron-toolkit/utils@4.0.0(electron@43.8.7(supports-color@7.2.0))':
+    dependencies:
+      electron: 43.8.7(supports-color@7.2.0)
 
   '@electron/asar@3.4.1':
     dependencies:

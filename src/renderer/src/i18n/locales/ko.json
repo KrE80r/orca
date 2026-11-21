@@ -8762,7 +8762,11 @@
           "dictationModeAuto": "자동",
           "speechGpuLabel": "GPU 사용",
           "c5ea32143e": "음성 모델",
-          "ba4a900d1d": "받아쓰기 모드"
+          "ba4a900d1d": "받아쓰기 모드",
+          "6b0ed79a8f": "Mute other audio while dictating",
+          "66296e0568": "Temporarily mute this computer's output while the microphone is active.",
+          "a2f0263871": "System audio muting is not available on this computer.",
+          "50504af1f2": "Checking system audio support…"
         },
         "WorktreeSymlinksSection": {
           "1c1e35b219": "{{value0}} 제거",
@@ -16266,7 +16270,9 @@
           "micFallback": "선택한 마이크를 사용할 수 없습니다. 시스템 기본값을 사용합니다.",
           "micDisconnected": "마이크 연결이 끊어졌습니다. 받아쓰기가 중지되었습니다.",
           "cloudLimitReached": "클라우드 10분 제한에 도달해 받아쓰기가 중지되었습니다.",
-          "retryUnmatched": "다시 시도할 때 이미 입력된 단어를 찾지 못해 전부 삽입했습니다."
+          "retryUnmatched": "다시 시도할 때 이미 입력된 단어를 찾지 못해 전부 삽입했습니다.",
+          "c97ad62022": "Could not mute other audio. Dictation will continue.",
+          "0080b89cf5": "Could not restore other audio. Unmute it in system controls."
         },
         "dictation-transcript-delivery": {
           "copiedAfterFailedInsert": "받아쓰기를 삽입할 수 없어 클립보드에 복사했습니다.",

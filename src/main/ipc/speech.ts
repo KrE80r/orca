@@ -11,6 +11,7 @@ import { dictationTextSettingsFor } from '../../shared/speech/dictation/dictatio
 import { SPEECH_MODEL_CATALOG } from '../speech/model-catalog'
 import { deleteLocalSpeechModel } from '../speech/speech-model-deletion'
 import { getSpeechModelManager, getSpeechSttService } from '../speech/speech-runtime-service'
+import { registerSpeechPlaybackSuppressionHandlers } from './speech-playback-suppression-ipc'
 import {
   clearOpenAiSpeechApiKey,
   getOpenAiSpeechApiKeyProtection,
@@ -164,6 +165,8 @@ export function registerSpeechHandlers(
     `desktop:${senderId}:${retiredDocumentCounts.get(senderId) ?? 0}:${sessionId}`
 
   const dictationListeners = new Map<number, { owner: string; cleanup: () => void }>()
+
+  registerSpeechPlaybackSuppressionHandlers(getDesktopOwner)
 
   // The preload posts a session's audio port just before its start, on the same ordered pipe.
   const pendingAudioPorts = new Map<string, MessagePortMain>()

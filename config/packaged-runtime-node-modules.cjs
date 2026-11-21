@@ -27,6 +27,7 @@ const requireFromProject = createRequire(join(projectDir, 'package.json'))
 const PACKAGED_RUNTIME_PACKAGE_ROOTS = [
   '@anthropic-ai/claude-agent-sdk',
   '@linear/sdk',
+  '@noble/hashes',
   '@orca/process-host',
   '@parcel/watcher',
   'electron-updater',
@@ -39,7 +40,7 @@ const PACKAGED_RUNTIME_PACKAGE_ROOTS = [
   'smol-toml',
   'ssh2',
   'tweetnacl',
-  'ws',
+  '@electron-toolkit/utils', 'es-module-lexer', 'sucrase', 'ws',
   'yaml',
   'zod'
 ]
@@ -87,7 +88,9 @@ const JS_SOURCE_MAP_ARTIFACT_RE = /\.(?:c|m)?js\.map$/
 
 const NODE_BUILTINS = new Set([
   ...builtinModules,
-  ...builtinModules.map((moduleName) => `node:${moduleName}`)
+  ...builtinModules.map((moduleName) => `node:${moduleName}`),
+  // Why: experimental builtins like node:sqlite are absent from builtinModules.
+  'node:sqlite'
 ])
 
 function packageNameFromSpecifier(specifier) {

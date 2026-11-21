@@ -100,6 +100,14 @@ export const speechApi = {
     audioPorts.delete(sessionId)
     return ipcRenderer.invoke('speech:cancelDictation', sessionId)
   },
+  getPlaybackSuppressionCapability: (): Promise<boolean> =>
+    ipcRenderer.invoke('speech:getPlaybackSuppressionCapability'),
+  acquirePlaybackSuppression: (
+    sessionId: string
+  ): Promise<{ active: true } | { active: false; reason: 'canceled' | 'unavailable' }> =>
+    ipcRenderer.invoke('speech:acquirePlaybackSuppression', sessionId),
+  releasePlaybackSuppression: (sessionId: string): Promise<void> =>
+    ipcRenderer.invoke('speech:releasePlaybackSuppression', sessionId),
   cleanUpDictation: (
     text: string,
     context: DictationContext | undefined,

@@ -76,6 +76,7 @@ export function getDefaultVoiceSettings(): VoiceSettings {
     dictationMode: 'toggle' as const,
     dictationHoldToRecord: true,
     removeFillerWords: true,
+    muteSystemAudioDuringDictation: false,
     terminalConfirmBeforeInsert: false,
     openAiApiKeyConfigured: false,
     microphoneDeviceId: null,

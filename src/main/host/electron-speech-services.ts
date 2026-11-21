@@ -1,9 +1,13 @@
-import { net } from 'electron'
+import { app, net } from 'electron'
+import { join } from 'node:path'
 import { ModelManager } from '../speech/model-manager'
 import { SttService } from '../speech/stt-service'
 import { createSttGpuPolicy } from '../speech/stt-gpu-failure-marker'
 import { spawnSttWorkerWithCpuFallback } from '../speech/stt-worker-cpu-fallback'
 import { spawnSttUtilityProcess } from '../speech/stt-worker-utility-process'
+import { createPlaybackSuppressionAdapter } from '../speech/playback-suppression-platform'
+import { PlaybackSuppressionRecoveryFile } from '../speech/playback-suppression-recovery-file'
+import { PlaybackSuppressionService } from '../speech/playback-suppression-service'
 import type { SpeechServiceFactories } from '../speech/speech-runtime-service'
 import type {
   DownloadIncomingMessage,
@@ -46,5 +50,15 @@ export const electronSpeechServiceFactories: SpeechServiceFactories = {
   createSttService: (models, gpuEnabled) => {
     const gpu = createSttGpuPolicy(models.getModelsDir(), gpuEnabled)
     return new SttService(models, () => spawnSttWorkerWithCpuFallback(spawnSttUtilityProcess, gpu))
-  }
+  },
+  createPlaybackSuppressionService: () =>
+    new PlaybackSuppressionService(
+      createPlaybackSuppressionAdapter(process.platform, {
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath
+      }),
+      new PlaybackSuppressionRecoveryFile(
+        join(app.getPath('userData'), 'playback-suppression-recovery.json')
+      )
+    )
 }

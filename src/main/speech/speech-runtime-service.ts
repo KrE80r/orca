@@ -1,4 +1,5 @@
 import type { ModelManager } from './model-manager'
+import type { PlaybackSuppressionService } from './playback-suppression-service'
 import type { SttService } from './stt-service'
 import type { VoiceSettings } from '../../shared/speech/speech-types'
 
@@ -14,11 +15,13 @@ export type SpeechServiceFactories = {
   createModelManager(customModelsDir: string | undefined): ModelManager
   /** `gpuEnabled` reads the user's Voice setting at each recognizer start. */
   createSttService(models: ModelManager, gpuEnabled: () => boolean): SttService
+  createPlaybackSuppressionService(): PlaybackSuppressionService
 }
 
 let factories: SpeechServiceFactories | null = null
 let modelManager: ModelManager | null = null
 let sttService: SttService | null = null
+let playbackSuppressionService: PlaybackSuppressionService | null = null
 
 export function setSpeechServiceFactories(next: SpeechServiceFactories | null): void {
   factories = next
@@ -55,4 +58,11 @@ export function getSpeechSttService(store: SpeechSettingsStore): SttService {
 /** The service only if something already created it, so a host with voice off never builds one. */
 export function findSpeechSttService(): SttService | null {
   return sttService
+}
+
+export function getPlaybackSuppressionService(): PlaybackSuppressionService {
+  if (!playbackSuppressionService) {
+    playbackSuppressionService = requireFactories().createPlaybackSuppressionService()
+  }
+  return playbackSuppressionService
 }

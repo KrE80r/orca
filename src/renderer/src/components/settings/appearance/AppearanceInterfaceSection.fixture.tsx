@@ -15,7 +15,7 @@ export const languageMenu = defineFixture({
         applyTheme={() => {}}
         fontSuggestions={[]}
         isDesktopMac={false}
-        isDesktopWindows={false}
+        isDesktopTraySupported={false}
       />
     </SettingsGroup>
   ),

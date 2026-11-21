@@ -1,6 +1,8 @@
 import { ModelManager } from '../../speech/model-manager'
 import { openNodeSpeechDownloadRequest } from '../../speech/node-speech-download-request'
 import { canReadCloudSpeechCredentials } from '../../speech/cloud-transcription-target'
+import { unsupportedAdapter } from '../../speech/playback-suppression-platform'
+import { PlaybackSuppressionService } from '../../speech/playback-suppression-service'
 import type { SpeechServiceFactories } from '../../speech/speech-runtime-service'
 import { SttService } from '../../speech/stt-service'
 import { createSttGpuPolicy } from '../../speech/stt-gpu-failure-marker'
@@ -15,5 +17,7 @@ export const orcadSpeechServiceFactories: SpeechServiceFactories = {
   createSttService: (models, gpuEnabled) => {
     const gpu = createSttGpuPolicy(models.getModelsDir(), gpuEnabled)
     return new SttService(models, () => spawnSttWorkerWithCpuFallback(spawnSttForkedProcess, gpu))
-  }
+  },
+  // Headless host: never mute its speakers on behalf of a remote dictation client.
+  createPlaybackSuppressionService: () => new PlaybackSuppressionService(unsupportedAdapter)
 }

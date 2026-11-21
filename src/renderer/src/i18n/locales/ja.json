@@ -9441,7 +9441,11 @@
           "dictationModeAuto": "自動",
           "speechGpuLabel": "GPU を使用",
           "c5ea32143e": "音声モデル",
-          "ba4a900d1d": "ディクテーションモード"
+          "ba4a900d1d": "ディクテーションモード",
+          "6b0ed79a8f": "Mute other audio while dictating",
+          "66296e0568": "Temporarily mute this computer's output while the microphone is active.",
+          "a2f0263871": "System audio muting is not available on this computer.",
+          "50504af1f2": "Checking system audio support…"
         },
         "WorktreeSymlinksSection": {
           "1c1e35b219": "{{value0}} を削除",
@@ -17132,7 +17136,9 @@
           "micFallback": "選択したマイクが使用できません。システムのデフォルトを使用します。",
           "micDisconnected": "マイクが接続されていません。ディクテーションが停止しました。",
           "cloudLimitReached": "クラウドの10分の上限に達したため、ディクテーションが停止しました。",
-          "retryUnmatched": "再試行で入力済みの語句を特定できなかったため、すべて挿入しました。"
+          "retryUnmatched": "再試行で入力済みの語句を特定できなかったため、すべて挿入しました。",
+          "c97ad62022": "Could not mute other audio. Dictation will continue.",
+          "0080b89cf5": "Could not restore other audio. Unmute it in system controls."
         },
         "dictation-transcript-delivery": {
           "copiedAfterFailedInsert": "音声入力を挿入できなかったため、クリップボードにコピーしました。",
